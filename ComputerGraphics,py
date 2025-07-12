@@ -1,0 +1,202 @@
+import pygame
+import sys
+
+pygame.init()
+
+# Window setup
+WIDTH, HEIGHT = 800, 600
+screen = pygame.display.set_mode((WIDTH, HEIGHT))
+pygame.display.set_caption("Mini Paint with Shapes and Fill")
+
+# Constants
+WHITE = (255, 255, 255)
+BLACK = (0, 0, 0)
+COLORS = [BLACK, (255, 0, 0), (0, 255, 0), (0, 0, 255), (255, 255, 0)]
+TOOLBAR_HEIGHT = 80
+
+# Drawing settings
+current_color = BLACK
+brush_size = 5
+drawing = False
+last_pos = None
+start_shape_pos = None
+eraser_mode = False
+brush_shape = "circle"
+current_tool = "brush"
+fill_shape = False  # <-- New toggle for filled shapes
+
+# Undo / Redo stacks
+undo_stack = []
+redo_stack = []
+
+font = pygame.font.SysFont(None, 20)
+canvas = pygame.Surface((WIDTH, HEIGHT - TOOLBAR_HEIGHT))
+canvas.fill(WHITE)
+
+def clear_canvas():
+    canvas.fill(WHITE)
+
+class Button:
+    def __init__(self, x, y, w, h, color, text, action):
+        self.rect = pygame.Rect(x, y, w, h)
+        self.color = color
+        self.text = text
+        self.action = action
+
+    def draw(self, surface):
+        pygame.draw.rect(surface, self.color, self.rect)
+        pygame.draw.rect(surface, BLACK, self.rect, 2)
+        if self.text:
+            text_surf = font.render(self.text, True, BLACK)
+            surface.blit(text_surf, (self.rect.x + 5, self.rect.y + 5))
+
+    def is_clicked(self, pos):
+        return self.rect.collidepoint(pos)
+
+def set_color(color):
+    global current_color, eraser_mode
+    current_color = color
+    eraser_mode = False
+
+def toggle_eraser():
+    global current_color, eraser_mode, current_tool
+    eraser_mode = not eraser_mode
+    current_tool = "brush"
+    current_color = WHITE if eraser_mode else BLACK
+
+def save_canvas():
+    pygame.image.save(canvas, "my_drawing.png")
+
+def undo():
+    if undo_stack:
+        redo_stack.append(canvas.copy())
+        img = undo_stack.pop()
+        canvas.blit(img, (0, 0))
+
+def redo():
+    if redo_stack:
+        undo_stack.append(canvas.copy())
+        img = redo_stack.pop()
+        canvas.blit(img, (0, 0))
+
+def set_tool(tool):
+    global current_tool, eraser_mode
+    current_tool = tool
+    eraser_mode = False
+
+def toggle_fill():
+    global fill_shape
+    fill_shape = not fill_shape
+
+# Create buttons
+buttons = []
+
+# Color buttons (compact layout)
+for i, color in enumerate(COLORS):
+    buttons.append(Button(10 + i * 45, 10, 40, 30, color, "", lambda c=color: set_color(c)))
+
+# Tool buttons
+buttons.extend([
+    Button(250, 10, 60, 30, (180, 180, 180), "Brush", lambda: set_tool("brush")),
+    Button(320, 10, 60, 30, (180, 180, 180), "Rect", lambda: set_tool("rectangle")),
+    Button(390, 10, 60, 30, (180, 180, 180), "Circle", lambda: set_tool("circle")),
+    Button(460, 10, 60, 30, (180, 180, 180), "Square", lambda: set_tool("square")),
+    Button(530, 10, 60, 30, (200, 200, 200), "Eraser", toggle_eraser),
+    Button(600, 10, 60, 30, (200, 200, 200), "Undo", undo),
+    Button(670, 10, 60, 30, (200, 200, 200), "Redo", redo),
+    Button(740, 10, 50, 30, (200, 200, 200), "Save", save_canvas),
+    Button(10, 45, 100, 25, (200, 200, 200), "Clear Canvas", clear_canvas),
+    Button(120, 45, 90, 25, (200, 200, 200), "Fill: Off", toggle_fill)  # Text will change dynamically
+])
+
+clock = pygame.time.Clock()
+
+# Main loop
+while True:
+    preview = canvas.copy()
+
+    for event in pygame.event.get():
+        if event.type == pygame.QUIT:
+            pygame.quit()
+            sys.exit()
+
+        elif event.type == pygame.MOUSEBUTTONDOWN:
+            pos = pygame.mouse.get_pos()
+            if pos[1] <= TOOLBAR_HEIGHT:
+                for btn in buttons:
+                    if btn.is_clicked(pos):
+                        btn.action()
+                        break
+            else:
+                if event.button == 1:
+                    drawing = True
+                    start_shape_pos = (pos[0], pos[1] - TOOLBAR_HEIGHT)
+                    last_pos = start_shape_pos
+                    undo_stack.append(canvas.copy())
+                    redo_stack.clear()
+
+        elif event.type == pygame.MOUSEBUTTONUP:
+            if event.button == 1 and drawing:
+                end_pos = (event.pos[0], event.pos[1] - TOOLBAR_HEIGHT)
+                width = end_pos[0] - start_shape_pos[0]
+                height = end_pos[1] - start_shape_pos[1]
+                if current_tool == "rectangle":
+                    pygame.draw.rect(canvas, current_color, pygame.Rect(start_shape_pos, (width, height)), 0 if fill_shape else brush_size)
+                elif current_tool == "square":
+                    side = max(abs(width), abs(height))
+                    rect = pygame.Rect(start_shape_pos[0], start_shape_pos[1], side, side)
+                    pygame.draw.rect(canvas, current_color, rect, 0 if fill_shape else brush_size)
+                elif current_tool == "circle":
+                    radius = int((width**2 + height**2)**0.5)
+                    pygame.draw.circle(canvas, current_color, start_shape_pos, radius, 0 if fill_shape else brush_size)
+                drawing = False
+                start_shape_pos = None
+                last_pos = None
+
+        elif event.type == pygame.MOUSEMOTION:
+            if drawing and pygame.mouse.get_pressed()[0]:
+                pos = (event.pos[0], event.pos[1] - TOOLBAR_HEIGHT)
+                if current_tool == "brush":
+                    if last_pos:
+                        pygame.draw.line(canvas, current_color, last_pos, pos, brush_size)
+                    last_pos = pos
+                elif current_tool in ["rectangle", "circle", "square"]:
+                    last_pos = pos
+
+        elif event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_UP:
+                brush_size += 1
+            elif event.key == pygame.K_DOWN:
+                brush_size = max(1, brush_size - 1)
+
+    # Update dynamic button text
+    for btn in buttons:
+        if btn.text.startswith("Fill"):
+            btn.text = "Fill: On" if fill_shape else "Fill: Off"
+
+    # Draw UI
+    screen.fill((220, 220, 220))
+    for btn in buttons:
+        btn.draw(screen)
+
+    # Draw canvas
+    screen.blit(canvas, (0, TOOLBAR_HEIGHT))
+
+    # Shape preview
+    if drawing and current_tool in ["rectangle", "circle", "square"] and last_pos and start_shape_pos:
+        temp = preview.copy()
+        width = last_pos[0] - start_shape_pos[0]
+        height = last_pos[1] - start_shape_pos[1]
+        if current_tool == "rectangle":
+            pygame.draw.rect(temp, current_color, pygame.Rect(start_shape_pos, (width, height)), 0 if fill_shape else brush_size)
+        elif current_tool == "square":
+            side = max(abs(width), abs(height))
+            rect = pygame.Rect(start_shape_pos[0], start_shape_pos[1], side, side)
+            pygame.draw.rect(temp, current_color, rect, 0 if fill_shape else brush_size)
+        elif current_tool == "circle":
+            radius = int((width**2 + height**2)**0.5)
+            pygame.draw.circle(temp, current_color, start_shape_pos, radius, 0 if fill_shape else brush_size)
+        screen.blit(temp, (0, TOOLBAR_HEIGHT))
+
+    pygame.display.flip()
+    clock.tick(60)
